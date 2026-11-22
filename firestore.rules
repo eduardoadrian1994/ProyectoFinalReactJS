@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'admin';
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'rol'])
+        && data.keys().hasOnly(['email', 'rol'])
+        && data.email is string
+        && data.email.size() > 0
+        && data.email.size() <= 254
+        && data.rol in ['admin', 'user'];
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'name', 'nombre', 'category', 'categoria', 'description',
+          'descripcion', 'price', 'precio', 'stock', 'image', 'imagen',
+          'rating', 'tag', 'oferta'
+        ])
+        && data.keys().hasOnly([
+          'name', 'nombre', 'category', 'categoria', 'description',
+          'descripcion', 'price', 'precio', 'stock', 'image', 'imagen',
+          'rating', 'tag', 'oferta'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 70
+        && data.nombre == data.name
+        && data.category is string
+        && data.category.size() > 0
+        && data.category.size() <= 35
+        && data.categoria == data.category
+        && data.description is string
+        && data.description.size() > 0
+        && data.description.size() <= 100
+        && data.descripcion == data.description
+        && data.price is number
+        && data.price > 0
+        && data.price <= 100000000
+        && data.precio == data.price
+        && data.stock is int
+        && data.stock >= 0
+        && data.stock <= 1000000
+        && data.image is string
+        && data.image.size() > 0
+        && data.image.size() <= 900000
+        && (data.image.matches('^https?://.*') || data.image.matches('^data:image/.*;base64,.*'))
+        && data.imagen == data.image
+        && (data.rating == null || (data.rating is number && data.rating >= 0 && data.rating <= 5))
+        && data.tag is string
+        && data.oferta is bool
+        && data.tag.size() <= 50;
+    }
+
+    function isValidCoupon(data) {
+      return data.keys().hasAll(['codigo', 'porcentaje'])
+        && data.keys().hasOnly(['codigo', 'porcentaje'])
+        && data.codigo is string
+        && data.codigo.matches('^[A-Z0-9_-]{1,20}$')
+        && data.porcentaje is number
+        && data.porcentaje > 0
+        && data.porcentaje <= 100;
+    }
+
+    match /usuarios/{userId} {
+      allow get: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAuthenticated()
+        && request.auth.uid == userId
+        && isValidUser(request.resource.data)
+        && request.resource.data.rol == 'user';
+      allow update: if isAdmin() && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /{productCollection}/{productId} {
+      allow get, list: if productCollection in ['Productos nacionales', 'productos'];
+      allow create, update: if productCollection in ['Productos nacionales', 'productos']
+        && isAdmin()
+        && isValidProduct(request.resource.data);
+      allow delete: if productCollection in ['Productos nacionales', 'productos'] && isAdmin();
+    }
+
+    match /cupones/{couponId} {
+      allow get, list: if isAdmin();
+      allow create, update: if isAdmin() && isValidCoupon(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /equipo/{personId} {
+      allow get, list: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
